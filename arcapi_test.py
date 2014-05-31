@@ -3,9 +3,10 @@
 # Name:        arcapi_test
 # Purpose:     Tests for arcapi module.
 #
-# Author:      Filip Kral
+# Author:      Filip Kral, Caleb Mackay
 #
 # Created:     01/02/2014
+# Updated:     05/15/2014
 # Licence:     LGPL v3
 #-------------------------------------------------------------------------------
 # Most of the functions operate on potentially complex data, or require manual
@@ -21,11 +22,12 @@ import sys
 import arcpy
 import arcapi as ap
 
+
 class TestGlobalFunctions(unittest.TestCase):
 
     def setUp(self):
         # access testing data
-         try:
+        try:
             self.testingfolder = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'testing')
         except:
             self.testingfolder = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'testing')
@@ -34,6 +36,8 @@ class TestGlobalFunctions(unittest.TestCase):
         #self.t_fc =  os.path.join(self.testing_gdb, 'left_i_right')
         #self.t_cols = ('OBJECTID', 'Shape', 'CCARM2', 'POINT_X', u'POINT_Y', u'ROUND_X', 'ROUND_Y', 'name', 'propagatedName', 'fullName', 'GID', 'DOWNGID', 'HA_NUM','STRAHLER', 'SHREVE', 'OS_NAME', 'FNODE_FULL', 'TNODE_FULL', 'NAMENOXML', 'Shape_Length')
         self.t_fc =  os.path.join(self.testing_gdb, 'ne_110m_admin_0_countries')
+        self.t_fc2 = os.path.join(self.testing_gdb, 'Illinois')
+        self.t_tab = os.path.join(self.testing_gdb, 'Illinois_county_info')
         self.t_cols =  ('OBJECTID','Shape','ScaleRank','LabelRank','FeatureCla',
                       'SOVEREIGNT','SOV_A3','ADM0_DIF','LEVEL','TYPE','ADMIN',
                       'ADM0_A3','GEOU_DIF','GEOUNIT','GU_A3','SU_DIF','SUBUNIT',
@@ -44,7 +48,7 @@ class TestGlobalFunctions(unittest.TestCase):
 
     def tearDown(self):
         pass
-
+    
     def testnames(self):
         est = map(str, tuple(ap.names(self.t_fc)))
         obs = ('OBJECTID','Shape','ScaleRank','LabelRank','FeatureCla',
@@ -71,9 +75,29 @@ class TestGlobalFunctions(unittest.TestCase):
         self.assertEqual(est, obs)
         pass
 
-##    def testvalues(self):
-##        pass
-##
+    def testvalues(self):
+
+        fc = self.t_fc
+        w = '"OBJECTID" < 11'
+
+        vals1 = ap.values(fc, 'Shape_Length', w)
+        vals2 = ap.values(fc, 'Shape_Length', w, 'Shape_Length ASC')
+        vals3 = ap.values(fc, 'SHAPE@XY', w)
+        vals4 = ap.values(fc, 'SHAPE@XY;Shape_Length', w, 'Shape_Length DESC')
+        est = all([len(vi) == 10 for vi in [vals1, vals2, vals3, vals4]])
+        self.assertTrue(est)
+
+    def testvalues_crosscolumns(self):
+        # the values function requires columns included in the o parameter
+        # to be included in the col parameter too, otherwise an invalid
+        # sql statement is generated.
+        fc = self.t_fc
+        w = '"OBJECTID" < 11'
+        with self.assertRaises(RuntimeError):
+            vals = ap.values(fc, 'SHAPE@XY', w, 'Shape_Length ASC')
+        pass
+
+
 ##    def testdistinct(self):
 ##        pass
 
@@ -102,6 +126,24 @@ class TestGlobalFunctions(unittest.TestCase):
             ap.plot(x, [1,2,3], pic, 'Main', 'X [m]', 'Y [m]', 'o', 'k', openit=False)
         pass
 
+    def testhist(self):
+        pic = r'c:\temp\plot.png'
+        x = xrange(20)
+        h = ap.hist(x, out_file=pic, openit=False)
+        h = ap.hist(x, pic, main='Main', xlab='Xlbl', log=True, openit=False)
+        os.remove(pic)
+        self.assertFalse(os.path.exists(pic))
+
+    def testbars(self):
+        pic = r'c:\temp\plot.png'
+        x = xrange(20)
+        ap.bars(x, out_file=pic, openit=False)
+        y = xrange(50,70)
+        ap.bars(x, out_file=pic, labels=y, main='Main', xlab='X', ylab='Y', openit=False)
+        ap.bars([], openit=False)
+        os.remove(pic)
+        self.assertFalse(os.path.exists(pic))
+
     def testrename_col(self):
         import arcpy
         import tempfile
@@ -117,11 +159,11 @@ class TestGlobalFunctions(unittest.TestCase):
         pass
 
     def testtlist_to_table(self):
-        ot = arcpy.CreateScratchName('tmp.dbf', workspace='c:\\temp')
         colnames = ['NAME', 'POP_EST']
         coltypes = ['TEXT', 'DOUBLE']
         collengths = [250, '#']
         coldefs = zip(colnames, coltypes, collengths)
+        coldefs2 = ['NAME:TEXT', 'POP_EST:DOUBLE']
 
         # read data
         tl = []
@@ -129,14 +171,19 @@ class TestGlobalFunctions(unittest.TestCase):
             for row in sc:
                 tl.append(tuple(row))
 
-        # write as table
+        # write as table using log column definition
+        ot = arcpy.CreateScratchName('tmp.dbf', workspace='c:\\temp')
         ot = ap.tlist_to_table(tl, ot, coldefs, -9, 'nullText')
-        ap.head(ot)
-        est = int(arcpy.GetCount_management(ot).getOutput(0))
+        est1 = int(arcpy.GetCount_management(ot).getOutput(0))
+
+        # write as table using short column definition
+        ot = arcpy.CreateScratchName('tmp.dbf', workspace='c:\\temp')
+        ot = ap.tlist_to_table(tl, ot, coldefs2, -9, 'nullText')
+        est2 = int(arcpy.GetCount_management(ot).getOutput(0))
         obs = int(arcpy.GetCount_management(self.t_fc).getOutput(0))
 
         arcpy.Delete_management(ot)
-        self.assertEqual(est, obs)
+        self.assertTrue(all((est1 == obs, est2 == obs)))
         pass
 
 ##    def testdocu(self):
@@ -144,19 +191,23 @@ class TestGlobalFunctions(unittest.TestCase):
 
     def testmeta(self):
         fcws = 'c:\\temp'
-        fcnm = os.path.basename(arcpy.CreateScratchName('tmp.shp', workspace=fcws))
+        tempshp = arcpy.CreateScratchName('tmp.dbf', workspace=fcws).replace('.dbf', '.shp')
+        fcnm = os.path.basename(tempshp)
+
+        # testing entries
+        ttl,pps,abt = "Bar","example", "Column Spam means eggs"
 
         fc = arcpy.FeatureClassToFeatureClass_conversion(
             self.t_fc,
             fcws,
             fcnm
         ).getOutput(0)
-
-        ap.meta(fc, 'OVERWRITE', title="Bar")
-        ap.meta(fc, 'append', purpose='example', abstract='Column Spam means eggs')
-
+        ap.meta(fc, 'OVERWRITE', title=ttl)
+        editted = ap.meta(fc, 'append', purpose=pps, abstract=abt)
+        editted = ap.meta(fc, 'overwrite', title=ttl, purpose=pps, abstract=abt)
+        retrieved = ap.meta(fc)
         ap.dlt(fc)
-        pass
+        self.assertEqual(set(editted.values()), set(retrieved.values()))
 
 ##    def testmsg(self):
 ##        pass
@@ -208,7 +259,8 @@ class TestGlobalFunctions(unittest.TestCase):
         if arcpy.Exists(tempfc):
             arcpy.Delete_management(tempfc)
         tmpfc = arcpy.CopyFeatures_management(lr, tempfc).getOutput(0)
-        fc = arcpy.CopyFeatures_management(tmpfc, arcpy.CreateScratchName("tmp.shp", workspace="c:\\temp")).getOutput(0)
+        tempshp = arcpy.CreateScratchName('tmp.dbf', workspace='c:\\temp').replace('.dbf', '.shp')
+        fc = arcpy.CopyFeatures_management(tmpfc, tempshp).getOutput(0)
         ap.dlt(lr)
         est.append(ap.dlt(tmpfc))
         est.append(ap.dlt(fc))
@@ -227,7 +279,7 @@ class TestGlobalFunctions(unittest.TestCase):
     def testto_points(self):
         obs = 10
         wc = '"OBJECTID" < ' + str(obs + 1)
-        ofc = arcpy.CreateScratchName("tmp_out.shp", workspace="c:\\temp")
+        ofc = arcpy.CreateScratchName("tmp_out.dbf", workspace="c:\\temp").replace('.dbf', '.shp')
         cs = 27700
         ptfc = ap.to_points(self.t_fc, ofc, "POP_EST", "GDP_MD_EST", cs, w = wc)
         est = int(arcpy.GetCount_management(ptfc).getOutput(0))
@@ -267,7 +319,7 @@ class TestGlobalFunctions(unittest.TestCase):
 
         eq = all([ei == oi for ei,oi in zip(est, obs)])
         self.assertTrue(eq)
-    
+
     def testremap_sa(self):
         est = []
 
@@ -500,10 +552,10 @@ class TestGlobalFunctions(unittest.TestCase):
         # already populated for each county
         ap.create_pie_chart(fig, tv, 'NAME','POP2000', 'IL Counties')
         self.assertTrue(os.path.exists(fig))
-        try:
-            arcpy.Delete_management(fig) # may want to look at the figure, pretty cool!
-        except:
-            pass
+####        try:
+####            arcpy.Delete_management(fig) # may want to look at the figure, pretty cool!
+####        except:
+####            pass
         pass
 
     def testcombine_pdfs(self):
@@ -529,5 +581,6 @@ class TestGlobalFunctions(unittest.TestCase):
         except:
             pass
         pass
+
 if __name__ == '__main__':
     unittest.main(verbosity = 2)
